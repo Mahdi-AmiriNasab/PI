@@ -24,14 +24,26 @@
 /* USER CODE BEGIN Includes */
 #include "ili9341.h"
 #include "MyStruct.h"
+#include "stdio.h"
+#include "string.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+#define		presampling_number		1
+#define		LCD_WIDTH				320
+
 int16_t Counter;
-uint32_t ADC_read[10] , ADC_final;
-uint16_t buffer_signal[100];
+uint32_t ADC_read[presampling_number] , ADC_final;
+uint16_t buffer_signal[400];
 uint16_t ADC_sampling_step;
+uint16_t ADC_trigger = 2750;
+enum 
+{
+		not_ready
+	,	ready	
+}data_status;
 
 /* USER CODE END PTD */
 
@@ -134,7 +146,7 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-	HAL_ADCEx_Calibration_Start(&hadc1);
+	// HAL_ADCEx_Calibration_Start(&hadc1);
 	// HAL_ADCEx_Calibration_Start(&hadc2);
 
 	HAL_ADC_Start_DMA(&hadc1, ADC_read, 10);		// start ADC DMA in circular mode
@@ -144,21 +156,10 @@ int main(void)
 	HAL_TIM_PWM_Start(&htim3,TIM_CHANNEL_1);
 	HAL_GPIO_WritePin(LCD_BACKLIGHT_GPIO_Port,LCD_BACKLIGHT_Pin,GPIO_PIN_SET);
 	ILI9341_FillScreen(ILI9341_BLACK);
-	
-	ILI9341_FillScreen(ILI9341_BLACK);
-	for(int x = 0; x < ILI9341_WIDTH; x++) {
-			ILI9341_DrawPixel(x, 0, ILI9341_RED);
-			if(x>20 && x<(ILI9341_WIDTH-20))
-				ILI9341_DrawPixel(x, 60, ILI9341_RED);
-			
-			ILI9341_DrawPixel(x, ILI9341_HEIGHT-1, ILI9341_RED);
-	}
-	for(int y = 0; y < ILI9341_HEIGHT; y++) {
-			ILI9341_DrawPixel(0, y, ILI9341_RED);
-			ILI9341_DrawPixel(ILI9341_WIDTH-1, y, ILI9341_RED);
-	}
-  	HAL_TIM_PWM_Stop(&htim3,TIM_CHANNEL_1);	
-	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_4);
+
+  	HAL_TIM_PWM_Stop(&htim3,TIM_CHANNEL_1);		
+	  
+	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_4);		// loop pwm
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -169,9 +170,41 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 		// __HAL_IWDG_RELOAD_COUNTER(&hiwdg);
-		sprintf(W,">>> %d <<<",Counter);
-		ILI9341_WriteString(40, 75, W, Font_16x26, ILI9341_GREEN, ILI9341_BLACK);
-			
+
+	
+
+
+	if(data_status == ready)
+  	{
+		ILI9341_FillScreen(ILI9341_BLACK);
+	
+		for(int x = 0; x < 320; x++) 
+		{
+			HAL_ADC_Start(&hadc2);
+			HAL_ADC_PollForConversion(&hadc2,100);
+			ADC_Buffer[x]=(HAL_ADC_GetValue(&hadc2)-1000)/12;	
+		}				
+		for(int x = 0; x < 320; x++) 
+		{
+			for(int y = 0; y < 320; y++)
+			{
+				if(y<(240-ADC_Buffer[x])||  y>(242-ADC_Buffer[x]))
+					ILI9341_DrawPixel(x, y, ILI9341_BLACK );
+				else
+					ILI9341_DrawPixel(x, y, ILI9341_RED); 
+		 }  	
+		}
+	  
+		data_status = not_ready;
+		memset(buffer_signal, 0, sizeof(buffer_signal));	
+		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);	// start ADC's timer			
+	}
+	else
+	{
+		// if(HAL_ADC_GetValue(&hadc1) < ADC_trigger)
+		// 	HAL_ADC_Start_DMA(&hadc1, ADC_read, LCD_WIDTH);		// start ADC DMA in circular mode
+	}
+
   }
   /* USER CODE END 3 */
 }
@@ -257,7 +290,7 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_7;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -468,7 +501,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 72-1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 1000;
+  htim1.Init.Period = 1000/1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -492,7 +525,7 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 500;
+  sConfigOC.Pulse = 500/1;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -644,7 +677,7 @@ static void MX_TIM4_Init(void)
   htim4.Instance = TIM4;
   htim4.Init.Prescaler = 1000;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 310;
+  htim4.Init.Period = 286;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
@@ -658,7 +691,7 @@ static void MX_TIM4_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 30;
+  sConfigOC.Pulse = 28;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
@@ -827,23 +860,35 @@ static void MX_GPIO_Init(void)
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-	uint32_t boundary_value = 0; // stores 10% of final value as boundary to perform a comparison
+	// uint32_t boundary_value = 0; // stores 10% of final value as boundary to perform a comparison
 
 	if(hadc->Instance != ADC1)
 		return;
 	
-	for(uint8_t i = 0; i < sizeof (ADC_read)/4; i++)
-		ADC_final += ADC_read[i];
+	// for(uint8_t i = 0; i < presampling_number; i++)
+	// 	ADC_final += ADC_read[i];
 	
-	ADC_final /= sizeof(ADC_read)/4;
+	// ADC_final /= presampling_number;
 
-	buffer_signal[ADC_sampling_step] = ADC_final; // move to main buffer
-	ADC_final = 0;
 
-	ADC_sampling_step++;
+	// if(ADC_sampling_step == 0)
+	// 	if(ADC_final < ADC_trigger)
+	// 		return;
 
-	if(ADC_sampling_step >= sizeof(buffer_signal)/2)
-		ADC_sampling_step = 0;
+	// ADC_final = (ADC_final - 1000) / 12;
+
+	// buffer_signal[ADC_sampling_step] = ADC_final; // move to main buffer
+	// ADC_final = 0;
+
+	// ADC_sampling_step++;
+
+	// if(ADC_sampling_step >= LCD_WIDTH)
+	// {
+		// HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);	// stop ADC timer
+		// ADC_sampling_step = 0;
+		data_status = ready;
+
+	// }
 }
 
 /* USER CODE END 4 */
