@@ -31,19 +31,23 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-#define		presampling_number		1
+#define		sampling_number			1000
 #define		LCD_WIDTH				320
 
 int16_t Counter;
-uint32_t ADC_read[presampling_number] , ADC_final;
-uint16_t buffer_signal[400];
 uint16_t ADC_sampling_step;
+uint32_t ADC_read[sampling_number], display[LCD_WIDTH];
 uint16_t ADC_trigger = 2750;
-enum 
+uint16_t scaling_factor = 100;
+typedef enum 
 {
 		not_ready
 	,	ready	
-}data_status;
+}STATUS;
+
+STATUS data_status;
+STATUS dma_status;
+
 
 /* USER CODE END PTD */
 
@@ -149,7 +153,7 @@ int main(void)
 	// HAL_ADCEx_Calibration_Start(&hadc1);
 	// HAL_ADCEx_Calibration_Start(&hadc2);
 
-	HAL_ADC_Start_DMA(&hadc1, ADC_read, 10);		// start ADC DMA in circular mode
+	HAL_ADC_Start_DMA(&hadc1, ADC_read, sampling_number);		// start ADC DMA in circular mode
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);	// start ADC's timer
 
   	ILI9341_Init();
@@ -180,29 +184,34 @@ int main(void)
 	
 		for(int x = 0; x < 320; x++) 
 		{
-			HAL_ADC_Start(&hadc2);
-			HAL_ADC_PollForConversion(&hadc2,100);
-			ADC_Buffer[x]=(HAL_ADC_GetValue(&hadc2)-1000)/12;	
+			if(display[x] > 1000)
+				display[x]=(display[x]-1000)/12;
+			else	
+				display[x] = 0;
 		}				
 		for(int x = 0; x < 320; x++) 
 		{
 			for(int y = 0; y < 320; y++)
 			{
-				if(y<(240-ADC_Buffer[x])||  y>(242-ADC_Buffer[x]))
+				if(y<(240-display[x])||  y>(242-display[x]))
 					ILI9341_DrawPixel(x, y, ILI9341_BLACK );
 				else
 					ILI9341_DrawPixel(x, y, ILI9341_RED); 
-		 }  	
+		 	}  	
 		}
 	  
 		data_status = not_ready;
-		memset(buffer_signal, 0, sizeof(buffer_signal));	
-		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);	// start ADC's timer			
+		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);	// start ADC's timer
+	
 	}
 	else
 	{
+		// //  HAL_ADC_Start_DMA(&hadc1, ADC_read, LCD_WIDTH);		// start ADC DMA in circular mode
 		// if(HAL_ADC_GetValue(&hadc1) < ADC_trigger)
+		// {
 		// 	HAL_ADC_Start_DMA(&hadc1, ADC_read, LCD_WIDTH);		// start ADC DMA in circular mode
+		// 	dma_status = ready;
+		// }	
 	}
 
   }
@@ -499,9 +508,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 72-1;
+  htim1.Init.Prescaler = 7-1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 1000/1;
+  htim1.Init.Period = 1000/scaling_factor;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -525,7 +534,7 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 500/1;
+  sConfigOC.Pulse = 500/scaling_factor	;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -865,10 +874,10 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 	if(hadc->Instance != ADC1)
 		return;
 	
-	// for(uint8_t i = 0; i < presampling_number; i++)
+	// for(uint8_t i = 0; i < sampling_number; i++)
 	// 	ADC_final += ADC_read[i];
 	
-	// ADC_final /= presampling_number;
+	// ADC_final /= sampling_number;
 
 
 	// if(ADC_sampling_step == 0)
@@ -884,9 +893,29 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 
 	// if(ADC_sampling_step >= LCD_WIDTH)
 	// {
-		// HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);	// stop ADC timer
 		// ADC_sampling_step = 0;
+	static uint16_t index = 0;
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);	// stop ADC's timer
+
+
+	while(index < sampling_number)
+	{
+		if(ADC_read[index] < ADC_trigger)
+			if(ADC_read[index+1] < ADC_trigger)
+				if(ADC_read[index+2] < ADC_trigger)
+					if(ADC_read[index+3] < ADC_trigger)
+						if(sampling_number - index > LCD_WIDTH)
+							break;
+		index++;	
+	}
+	if(index < sampling_number)
+	{
+		memcpy(display, ADC_read+index, LCD_WIDTH);
 		data_status = ready;
+	}
+	else
+		HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);	// start ADC's timer
+	index = 0;
 
 	// }
 }
