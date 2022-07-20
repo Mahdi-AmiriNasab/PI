@@ -37,8 +37,8 @@
 int16_t Counter;
 uint16_t ADC_sampling_step;
 uint32_t ADC_read[sampling_number], display[LCD_WIDTH];
-uint16_t ADC_trigger = 2750;
-uint16_t scaling_factor = 100;
+uint16_t ADC_trigger = 2500;
+uint16_t scaling_factor = 10;
 typedef enum 
 {
 		not_ready
@@ -48,6 +48,8 @@ typedef enum
 STATUS data_status;
 STATUS dma_status;
 
+
+uint16_t lcd_offset = 100,	lcd_voltdiv = 12;
 
 /* USER CODE END PTD */
 
@@ -184,8 +186,8 @@ int main(void)
 	
 		for(int x = 0; x < 320; x++) 
 		{
-			if(display[x] > 1000)
-				display[x]=(display[x]-1000)/12;
+			if(display[x] > lcd_offset)
+				display[x]=(display[x]-lcd_offset)/lcd_voltdiv;
 			else	
 				display[x] = 0;
 		}				
@@ -910,7 +912,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 	}
 	if(index < sampling_number)
 	{
-		memcpy(display, ADC_read+index, LCD_WIDTH);
+		memcpy(display, ADC_read+index, sizeof(display));
 		data_status = ready;
 	}
 	else
